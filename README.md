@@ -16,5 +16,8 @@ SNV detection from tumor and normal tissues with Fisher's Exact Test and False D
 ## 5. Lasso (L1), Ridge (L2) and Elastic-Net Regularization and Feature Selection
 Test which regularizer selects optimal feature set from yeast gene expression data, and correctly classifies the children strains as coming from one or another parent (strain cross experiment).
 
-## 6. Bayesian Nets
+## 6. Bayesian Net Structure and Causal Relationsip Learning
+Within a Bayes Net with 6 random variables, are two variables, A and B, causally related? We will run the *Peter-Clark (PC) algorithm* to learn correct graph structure and causal relationships.
+
+## 7. Optimal Bayesian Net Learning
 Analyse yeast cell-cycle regulator genes and learn optimal Bayesian Network
