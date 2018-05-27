@@ -1,0 +1,153 @@
+---
+title: "Learning Bayesian Networks from gene expression data"
+author: Modestas Filipavičius
+date: February 22, 2018
+output: pdf_document
+
+---
+
+Here we use R package deal1 to analyse yeast cell-cycle regulator genes and learn optimal Bayesian Network.
+
+# Install the packages and load and preprocess the data.
+YeastCC data: This data package contains an ExpressionSet instance for the yeast cell cycle microarray experiment. The dataset contains gene expression measures (log-ratios, with Cy3-labeled common reference) for 6,178 yeast genes in 77 conditions.
+```{r, message=F, warning=F}
+# Install deal and load yeastCC data
+# install.packages("deal")
+library(deal)
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("yeastCC")
+library(yeastCC)
+
+# Load the Yeast cell cycle regulator dataset
+yeastCC = yeastCC
+# First 3 genes are: [1] "YAL001C"   "YAL002W"   "YAL003W"
+# Last genes are:    [1] "YPR202W" "YPR203W" "YPR204W"
+
+# 77 conditions for each gene are measured in log-ratios: 
+#          cln3.1 cln3.2 clb2.2 clb2.1 alpha0 alpha7 alpha14 alpha21 alpha28 alpha35
+# YAL001C   0.15     NA  -0.22   0.07  -0.15  -0.15   -0.21    0.17   -0.42   -0.44
+# length(exprs(yeastCC[1]))
+```
+
+
+## Turn data object yeastCC into an expression matrix (function exprs) with genes as columns and experiments as rows.
+```{r}
+expr_df = as.data.frame(exprs(yeastCC))
+expr_mt = t(as.matrix(expr_df))
+expr_mt[1:5, 1:5]
+```
+
+
+## Restrict the genes to cell cycle regulators.
+The ORF names for the 800 cell cycle regulated genes are stored in orf800.
+```{r}
+# Create a mask with yeast gene indeces that correspond to 800 cell regulator genes
+mask = which(colnames(expr_mt) %in% orf800)
+
+# Subset cell regulators
+expr_cc_mt = expr_mt[ , mask]
+expr_cc_mt[1:5, 1:5]
+
+```
+
+
+## Replace missing data (=NA) with each gene’s median.
+```{r}
+replace_na_with_col_medians = function(x) {
+    x = replace(x, is.na(x), median(x, na.rm = T))
+    return(x)
+}
+
+cat("Number of NA's before cleanup is:", length(which(is.na(expr_cc_mt) == TRUE)))
+expr_cc_mt = apply(expr_cc_mt, 2, replace_na_with_col_medians)
+cat("Number of NA's after cleanup is:", length(which(is.na(expr_cc_mt) == TRUE)))
+# # Check if correct w/ 1st and 2nd genes
+# which(is.na(expr_cc_mt[, 2]))           # cdc28.140 idx61; cdc28.110 idx58
+# median(expr_cc_mt[, 2], na.rm = T)      # -0.5  -0.045
+
+```
+
+
+## Calculate the range between the 25th and 75th quantile for each gene and keep genes with a value > 1.6.
+The interquartile range of an observation variable is the difference of its upper and lower quartiles. It is a measure of how far apart the middle portion of data spreads in value.
+
+```{r}
+# Calculate IQRs for every gene/column, select IQRs with >1.6 and subset the data with them
+iqrs = apply(expr_cc_mt, 2, IQR)
+mask = which(iqrs > 1.6)
+expr16 = as.data.frame(expr_cc_mt[, mask])
+expr16[1:5,1:5]
+
+```
+
+## Add a dummy gene with expression 1 over all experiments (deal needs at least one discrete variable).
+```{r}
+YOLO = as.factor(rep(1, length(expr16[, 1]))) # must be a factor because discrete variable expected in deal
+expr16 = cbind(expr16, YOLO)
+cat("Class of dummy discrete variable should be a factor:", class(expr16[1, 11]))
+
+```
+
+
+
+
+# Learn the optimal network
+
+## Create an empty network prior.
+```{r}
+bn_expr16 = network(expr16) # to visually inspect local probs: inspectprob=TRUE
+# nodes(bn_expr16) # YOLO node should be discrete!
+plot(bn_expr16)
+```
+
+## What are the local probability distributions of the genes?
+
+```{r}
+localprob(bn_expr16)
+```
+
+
+## Ban all outgoing edges for the dummy node (use function banlist). 
+```{r}
+# build a table with edges between 11 and other nodes
+mybanlist = matrix(c(1,2,3,4,5,6,7,8,9,10, 
+                     11,11,11,11,11,11,11,11,11,11), 
+                   ncol=2)
+
+banlist(bn_expr16) =  mybanlist
+plot(bn_expr16)
+```
+
+## Create a joint prior with imaginary sample size 5, N=5
+```{r}
+bn_expr16.prior = jointprior(bn_expr16, N=5)
+head(bn_expr16.prior)
+```
+
+## Learn the initial network (use getnetwork to turn the result into an actual network).
+```{r}
+# master prior
+bn_expr16.m_prior = learn(bn_expr16, expr16, bn_expr16.prior)
+
+# initial network
+bn_expr16.initial = getnetwork(bn_expr16.m_prior)
+cat("Initial network score is:", bn_expr16.initial$score)
+```
+```{r fig.height = 5, fig.width = 5, fig.align = "center"}
+plot(bn_expr16.initial, showban = FALSE)
+```
+
+
+## Search for the optimal network and plot it
+```{r include=FALSE}
+bn_expr16.optimal = autosearch(bn_expr16.initial, expr16, bn_expr16.prior, showban = F, trace = F, timetrace = F)
+bn_expr16.optimal = getnetwork(bn_expr16.optimal)
+```
+```{r fig.height = 5, fig.width = 5, fig.align = "center"}
+plot(bn_expr16.optimal, showban = F)
+```
+
+## Optimal network score is: 
+```{r}
+bn_expr16.optimal$score
+```
